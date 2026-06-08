@@ -2,75 +2,113 @@
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
 
+# Define o nome do pipeline. É este texto que aparecerá como título lá na aba "Actions" do seu GitHub.
 name: Build and deploy Python app to Azure Web App - engsoft-cap6-lucas
 
+# A palavra-chave 'on' define os gatilhos (triggers). Ela diz ao GitHub QUANDO esse pipeline deve rodar.
 on:
+  # Gatilho 1: O pipeline rodará automaticamente sempre que alguém fizer um envio de código (push)...
   push:
+    # ...mas exclusivamente se esse envio for feito diretamente na branch 'main'.
     branches:
       - main
+  # Gatilho 2: Permite que você clique em um botão "Run workflow" no GitHub para rodar isso manualmente a qualquer momento.
   workflow_dispatch:
 
+# O bloco 'jobs' divide o pipeline em grandes tarefas. Aqui temos duas: 'build' e 'deploy'.
 jobs:
+  
+  # JOB 1: O 'build' é responsável por preparar o ambiente, baixar o código e empacotar tudo.
   build:
+    # Define qual sistema operacional o servidor virtual ("robô") do GitHub Actions vai rodar (Ubuntu mais recente).
     runs-on: ubuntu-latest
+    
+    # Define as permissões de segurança que este job tem sobre o seu repositório.
     permissions:
-      contents: read #This is required for actions/checkout
+      # Permite apenas ler os arquivos do seu código (necessário para baixar o repositório).
+      contents: read 
 
+    # 'steps' é a lista sequencial de passos que o servidor vai executar dentro deste job.
     steps:
+      
+      # --- EXIGÊNCIA DO EXERCÍCIO: NOVO STEP ADICIONADO AQUI ---
+      # Passo simples que executa um comando de terminal (echo) para imprimir uma mensagem no console.
+      - name: Mensagem de inicio
+        run: echo "Iniciando o deploy do meu projeto!"
+      # ---------------------------------------------------------
+
+      # Este passo usa uma Action oficial do GitHub para baixar (fazer o checkout) do seu código para dentro do servidor virtual.
       - uses: actions/checkout@v4
 
+      # Define um nome amigável para o passo de configuração da linguagem.
       - name: Set up Python version
+        # Usa a Action oficial para instalar a linguagem Python no servidor virtual.
         uses: actions/setup-python@v5
         with:
+          # Especifica que o servidor deve instalar exatamente a versão 3.13 do Python.
           python-version: '3.13'
 
+
       # 🛠️ Local Build Section (Optional)
-      # The following section in your workflow is designed to catch build issues early on the client side, before deployment. This can be helpful for debugging and validation. However, if this step significantly increases deployment time and early detection is not critical for your workflow, you may remove this section to streamline the deployment process.
+      # The following section in your workflow is designed to catch build issues early on the client side, before deployment. 
+      #This can be helpful for debugging and validation. However, if this step significantly increases deployment time and early detection is not 
+      #critical for your workflow, you may remove this section to streamline the deployment process.
+
+      # Cria um ambiente virtual Python, o ativa e instala as dependências listadas no requirements.txt. 
+      # Isso serve para testar se o código quebra durante a instalação local antes de tentar mandar pro Azure.
       - name: Create and Start virtual environment and Install dependencies
         run: |
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
-                
-      # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size. 
+            
+      # Como o Azure vai montar (buildar) a aplicação lá na nuvem (usando o motor Oryx), não precisamos enviar os arquivos pesados de dependência.
       - name: Upload artifact for deployment jobs
+        # Usa uma Action que pega seus arquivos e cria um pacote (artefato) para ser usado no próximo job.
         uses: actions/upload-artifact@v4
         with:
+          # Dá o nome de 'python-app' para esse pacote.
           name: python-app
+          # O parâmetro 'path' define o que entra no pacote: '.' inclui tudo da raiz, e '!antenv/' exclui a pasta do ambiente virtual.
           path: |
             .
             !antenv/
 
-      # 🚫 Opting Out of Oryx Build
-      # If you prefer to disable the Oryx build process during deployment, follow these steps:
-      # 1. Remove the SCM_DO_BUILD_DURING_DEPLOYMENT app setting from your Azure App Service Environment variables.
-      # 2. Refer to sample workflows for alternative deployment strategies: https://github.com/Azure/actions-workflow-samples/tree/master/AppService
-      
-
+  # JOB 2: O 'deploy' é responsável por pegar o pacote pronto e enviar definitivamente para o servidor da Microsoft.
   deploy:
+    # Também pede um servidor Ubuntu zerado para rodar este job.
     runs-on: ubuntu-latest
+    # Regra de dependência: Este job SÓ PODE INICIAR se o job 'build' for concluído com 100% de sucesso.
     needs: build
+    # Permissões necessárias para criar uma conexão segura sem usar senhas em texto plano.
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write # Permite gerar o token JWT para conversar com a nuvem da Microsoft.
+      contents: read  # Permite ler os arquivos.
 
+    # Passos sequenciais para enviar o projeto ao ar.
     steps:
+      # Passo que procura o pacote 'python-app' gerado no job anterior e faz o download dele para este novo servidor.
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: python-app
       
+      # Usa a Action de login oficial da Microsoft para conectar sua conta do GitHub à sua conta do Azure.
       - name: Login to Azure
         uses: azure/login@v2
         with:
+          # Coleta os segredos (senhas criptografadas) que o painel do Azure salvou automaticamente nas configurações do seu repositório.
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_61C1A1FE39FB45A7A978808D35E47036 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_56700143EB154CE7A2E480E2353B6609 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A5222E6CFBFC4E778B39B2132CE82DC7 }}
 
+      # Passo final que efetivamente faz o envio (upload) do seu código para o App Service no Azure.
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
+        # ID para referência interna do passo.
         id: deploy-to-webapp
         with:
+          # Aponta exatamente para o nome do recurso que você criou lá no portal do Azure.
           app-name: 'engsoft-cap6-lucas'
+          # Define que o código irá para o ambiente principal (Production/Produção), ficando visível ao público.
           slot-name: 'Production'
-          
